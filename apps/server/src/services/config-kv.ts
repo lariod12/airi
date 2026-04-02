@@ -1,7 +1,7 @@
 import type Redis from 'ioredis'
 import type { InferOutput } from 'valibot'
 
-import { array, number, object, optional, parse, string } from 'valibot'
+import { any, array, number, object, optional, parse, record, string } from 'valibot'
 
 import { createServiceUnavailableError } from '../utils/error'
 import { configRedisKey } from '../utils/redis-keys'
@@ -39,7 +39,7 @@ const ConfigEntrySchemas = {
   AUTH_RATE_LIMIT_MAX: optional(number(), 20),
   AUTH_RATE_LIMIT_WINDOW_SEC: optional(number(), 60),
   STRIPE_PAYMENT_METHODS: optional(array(string()), ['card']),
-  STRIPE_PAYMENT_METHOD_OPTIONS: optional(object({}), {}),
+  STRIPE_PAYMENT_METHOD_OPTIONS: optional(record(string(), any()), {}),
 } as const
 
 type ConfigDefinitions = {
