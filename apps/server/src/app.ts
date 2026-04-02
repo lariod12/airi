@@ -36,6 +36,7 @@ import { createRedis } from './libs/redis'
 import { resolveRequestAuth } from './libs/request-auth'
 import { sessionMiddleware } from './middlewares/auth'
 import { otelMiddleware } from './middlewares/otel'
+import { createAdminRoutes } from './routes/admin'
 import { createAuthRoutes } from './routes/auth'
 import { createCharacterRoutes } from './routes/characters'
 import { createChatWsHandlers } from './routes/chat-ws'
@@ -194,6 +195,11 @@ export async function buildApp(deps: AppDeps) {
      * Stripe routes.
      */
     .route('/api/v1/stripe', createStripeRoutes(deps.fluxService, deps.stripeService, deps.billingService, deps.configKV, deps.env, deps.otel?.revenue))
+
+    /**
+     * Admin routes for runtime config and flux management.
+     */
+    .route('/api/v1/admin', createAdminRoutes(deps.configKV, deps.billingService, deps.env.ADMIN_API_KEY))
 
   return { app: builtApp, injectWebSocket }
 }
