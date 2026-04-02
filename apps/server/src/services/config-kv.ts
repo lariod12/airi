@@ -27,14 +27,15 @@ const FluxPackageSchema = object({ amount: number(), fluxAmount: number(), label
  */
 const ConfigEntrySchemas = {
   FLUX_PER_REQUEST: optional(number(), 5),
-  FLUX_PER_REQUEST_TTS: number(),
-  FLUX_PER_REQUEST_ASR: number(),
   INITIAL_USER_FLUX: optional(number(), 0),
   FLUX_PACKAGES: optional(array(FluxPackageSchema), []),
   FLUX_PER_1K_TOKENS: optional(number(), 1),
+  FLUX_PER_1K_CHARS_TTS: number(),
+  MIN_CHARGE_TTS: optional(number(), 1),
   MAX_CHECKOUT_AMOUNT_CENTS: optional(number(), 1_000_000),
   GATEWAY_BASE_URL: string(),
   DEFAULT_CHAT_MODEL: string(),
+  DEFAULT_TTS_MODEL: string(),
   AUTH_RATE_LIMIT_MAX: optional(number(), 20),
   AUTH_RATE_LIMIT_WINDOW_SEC: optional(number(), 60),
   STRIPE_PAYMENT_METHODS: optional(array(string()), ['card']),

@@ -12,7 +12,6 @@ import type { HonoEnv } from '../../../types/hono'
 import { useLogger } from '@guiiai/logg'
 import { context, SpanStatusCode, trace } from '@opentelemetry/api'
 import { Hono } from 'hono'
-import { bodyLimit } from 'hono/body-limit'
 
 import { authGuard } from '../../../middlewares/auth'
 import { configGuard } from '../../../middlewares/config-guard'
@@ -328,7 +327,12 @@ export function createV1CompletionsRoutes(fluxService: FluxService, billingServi
     const gatewayBaseUrl = await configKV.getOrThrow('GATEWAY_BASE_URL')
     const baseUrl = normalizeBaseUrl(gatewayBaseUrl)
     const serverAttributes = getServerConnectionAttributes(baseUrl)
-    const requestModel = body.model || 'auto'
+    let requestModel = body.model || 'auto'
+    const inputText: string = body.input ?? ''
+
+    if (requestModel === 'auto') {
+      requestModel = await configKV.getOrThrow('DEFAULT_TTS_MODEL')
+    }
 
     const span = tracer.startSpan('llm.gateway.tts', {
       attributes: {
@@ -360,94 +364,29 @@ export function createV1CompletionsRoutes(fluxService: FluxService, billingServi
       })
     }
 
-    const fluxPerRequest = await configKV.getOrThrow('FLUX_PER_REQUEST_TTS')
+    // Per-character billing: charge based on input text length
+    const fluxPer1kChars = await configKV.getOrThrow('FLUX_PER_1K_CHARS_TTS')
+    const minChargeTts = await configKV.get('MIN_CHARGE_TTS')
+    const fluxConsumed = Math.max(minChargeTts, Math.ceil(inputText.length / 1000 * fluxPer1kChars))
+
     await billingService.consumeFluxForLLM({
       userId: user.id,
-      amount: fluxPerRequest,
+      amount: fluxConsumed,
       requestId: nanoid(),
       description: `tts:${requestModel}`,
+      model: requestModel,
     })
 
-    span.setAttribute(AIRI_ATTR_BILLING_FLUX_CONSUMED, fluxPerRequest)
+    span.setAttribute(AIRI_ATTR_BILLING_FLUX_CONSUMED, fluxConsumed)
     span.end()
-    recordMetrics({ model: requestModel, status: response.status, type: 'tts', durationMs, fluxConsumed: fluxPerRequest })
+    recordMetrics({ model: requestModel, status: response.status, type: 'tts', durationMs, fluxConsumed })
 
     publishRequestLog({
       userId: user.id,
       model: requestModel,
       status: response.status,
       durationMs,
-      fluxConsumed: fluxPerRequest,
-    })
-
-    return new Response(response.body, {
-      status: response.status,
-      headers: buildSafeResponseHeaders(response),
-    })
-  }
-
-  async function handleTranscription(c: Context<HonoEnv>) {
-    const user = c.get('user')!
-    const flux = await fluxService.getFlux(user.id)
-    if (flux.flux <= 0) {
-      throw createPaymentRequiredError('Insufficient flux')
-    }
-
-    const gatewayBaseUrl = await configKV.getOrThrow('GATEWAY_BASE_URL')
-    const baseUrl = normalizeBaseUrl(gatewayBaseUrl)
-    const serverAttributes = getServerConnectionAttributes(baseUrl)
-
-    const span = tracer.startSpan('llm.gateway.asr', {
-      attributes: {
-        [GEN_AI_ATTR_REQUEST_MODEL]: 'auto',
-        [AIRI_ATTR_GEN_AI_OPERATION_KIND]: 'speech_to_text',
-        ...serverAttributes,
-      },
-    })
-
-    const startedAt = Date.now()
-
-    const rawBody = await c.req.arrayBuffer()
-    const contentType = c.req.header('content-type') || 'multipart/form-data'
-
-    const response = await context.with(trace.setSpan(context.active(), span), () =>
-      fetch(`${baseUrl}audio/transcriptions`, {
-        method: 'POST',
-        headers: { 'Content-Type': contentType },
-        body: rawBody,
-      }))
-
-    const durationMs = Date.now() - startedAt
-    span.setAttribute('http.response.status_code', response.status)
-
-    if (!response.ok) {
-      span.setStatus({ code: SpanStatusCode.ERROR, message: `Gateway ${response.status}` })
-      span.end()
-      recordMetrics({ model: 'auto', status: response.status, type: 'asr', durationMs, fluxConsumed: 0 })
-      return new Response(response.body, {
-        status: response.status,
-        headers: buildSafeResponseHeaders(response),
-      })
-    }
-
-    const fluxPerRequest = await configKV.getOrThrow('FLUX_PER_REQUEST_ASR')
-    await billingService.consumeFluxForLLM({
-      userId: user.id,
-      amount: fluxPerRequest,
-      requestId: nanoid(),
-      description: `asr:auto`,
-    })
-
-    span.setAttribute(AIRI_ATTR_BILLING_FLUX_CONSUMED, fluxPerRequest)
-    span.end()
-    recordMetrics({ model: 'auto', status: response.status, type: 'asr', durationMs, fluxConsumed: fluxPerRequest })
-
-    publishRequestLog({
-      userId: user.id,
-      model: 'auto',
-      status: response.status,
-      durationMs,
-      fluxConsumed: fluxPerRequest,
+      fluxConsumed,
     })
 
     return new Response(response.body, {
@@ -457,8 +396,7 @@ export function createV1CompletionsRoutes(fluxService: FluxService, billingServi
   }
 
   const chatGuard = configGuard(configKV, ['FLUX_PER_REQUEST', 'GATEWAY_BASE_URL', 'DEFAULT_CHAT_MODEL'], 'Service is not available yet')
-  const ttsGuard = configGuard(configKV, ['FLUX_PER_REQUEST_TTS', 'GATEWAY_BASE_URL'], 'TTS service is not available yet')
-  const asrGuard = configGuard(configKV, ['FLUX_PER_REQUEST_ASR', 'GATEWAY_BASE_URL'], 'ASR service is not available yet')
+  const ttsGuard = configGuard(configKV, ['FLUX_PER_1K_CHARS_TTS', 'GATEWAY_BASE_URL', 'DEFAULT_TTS_MODEL'], 'TTS service is not available yet')
 
   // 60 requests per minute per user for LLM completions
   const completionsRateLimit = rateLimiter({ max: 60, windowSec: 60 })
@@ -468,5 +406,4 @@ export function createV1CompletionsRoutes(fluxService: FluxService, billingServi
     .post('/chat/completions', completionsRateLimit, chatGuard, handleCompletion)
     .post('/chat/completion', completionsRateLimit, chatGuard, handleCompletion)
     .post('/audio/speech', ttsGuard, handleTTS)
-    .post('/audio/transcriptions', bodyLimit({ maxSize: 25 * 1024 * 1024 }), asrGuard, handleTranscription)
 }

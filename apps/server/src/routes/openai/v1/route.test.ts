@@ -37,10 +37,11 @@ function createMockBillingService(flux = 100): BillingService {
 function createMockConfigKV(overrides: Record<string, any> = {}): ConfigKVService {
   const defaults: Record<string, any> = {
     FLUX_PER_REQUEST: 1,
-    FLUX_PER_REQUEST_TTS: 1,
-    FLUX_PER_REQUEST_ASR: 1,
+    FLUX_PER_1K_CHARS_TTS: 2,
+    MIN_CHARGE_TTS: 1,
     GATEWAY_BASE_URL: 'http://mock-gateway/',
     DEFAULT_CHAT_MODEL: 'openai/gpt-5-mini',
+    DEFAULT_TTS_MODEL: 'tts-1',
     ...overrides,
   }
   return {
@@ -351,57 +352,80 @@ describe('v1CompletionsRoutes', () => {
   })
 
   describe('pOST /api/v1/openai/audio/speech', () => {
-    it('should proxy TTS request to upstream', async () => {
+    it('should proxy TTS request to upstream and resolve auto model', async () => {
       const audioData = new Uint8Array([1, 2, 3, 4])
       globalThis.fetch = vi.fn(async () => new Response(audioData, {
         status: 200,
         headers: { 'Content-Type': 'audio/mpeg' },
       }))
 
-      const app = createTestApp(createMockFluxService(), createMockConfigKV())
+      const billingService = createMockBillingService(100)
+      const app = createTestApp(createMockFluxService(), createMockConfigKV(), billingService)
 
       const res = await app.fetch(
         new Request('http://localhost/api/v1/openai/audio/speech', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'tts-1', input: 'hello', voice: 'alloy' }),
+          body: JSON.stringify({ model: 'auto', input: 'hello world', voice: 'alloy' }),
         }),
         { user: testUser } as any,
       )
 
       expect(res.status).toBe(200)
+      // Should resolve 'auto' to DEFAULT_TTS_MODEL
       expect(globalThis.fetch).toHaveBeenCalledWith(
         'http://mock-gateway/audio/speech',
         expect.objectContaining({ method: 'POST' }),
       )
     })
-  })
 
-  describe('pOST /api/v1/openai/audio/transcriptions', () => {
-    it('should proxy transcription request to upstream', async () => {
-      globalThis.fetch = vi.fn(async () => new Response('{"text":"hello"}', {
+    it('should bill per character with minimum charge', async () => {
+      globalThis.fetch = vi.fn(async () => new Response(new Uint8Array([1]), {
         status: 200,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'audio/mpeg' },
       }))
 
-      const app = createTestApp(createMockFluxService(), createMockConfigKV())
+      const billingService = createMockBillingService(100)
+      // FLUX_PER_1K_CHARS_TTS = 2, MIN_CHARGE_TTS = 1
+      const app = createTestApp(createMockFluxService(), createMockConfigKV(), billingService)
 
-      const formData = new FormData()
-      formData.append('file', new Blob(['audio']), 'test.wav')
-      formData.append('model', 'whisper-1')
-
-      const res = await app.fetch(
-        new Request('http://localhost/api/v1/openai/audio/transcriptions', {
+      // Short input (5 chars) → ceil(5/1000 * 2) = 1, min 1 → charge 1
+      await app.fetch(
+        new Request('http://localhost/api/v1/openai/audio/speech', {
           method: 'POST',
-          body: formData,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'auto', input: 'hello', voice: 'alloy' }),
         }),
         { user: testUser } as any,
       )
 
-      expect(res.status).toBe(200)
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        'http://mock-gateway/audio/transcriptions',
-        expect.objectContaining({ method: 'POST' }),
+      expect(billingService.consumeFluxForLLM).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-1', amount: 1 }),
+      )
+    })
+
+    it('should charge proportionally for long input', async () => {
+      globalThis.fetch = vi.fn(async () => new Response(new Uint8Array([1]), {
+        status: 200,
+        headers: { 'Content-Type': 'audio/mpeg' },
+      }))
+
+      const billingService = createMockBillingService(100)
+      // FLUX_PER_1K_CHARS_TTS = 2, input = 2500 chars → ceil(2500/1000 * 2) = 5
+      const longInput = 'a'.repeat(2500)
+      const app = createTestApp(createMockFluxService(), createMockConfigKV(), billingService)
+
+      await app.fetch(
+        new Request('http://localhost/api/v1/openai/audio/speech', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'auto', input: longInput, voice: 'alloy' }),
+        }),
+        { user: testUser } as any,
+      )
+
+      expect(billingService.consumeFluxForLLM).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-1', amount: 5 }),
       )
     })
   })

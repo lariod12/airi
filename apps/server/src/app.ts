@@ -124,13 +124,7 @@ export async function buildApp(deps: AppDeps) {
 
   const builtApp = app
     .use('*', sessionMiddleware(deps.auth, deps.env))
-    .use('*', async (c, next) => {
-      // Skip global body limit for ASR transcription route (has its own 25MB limit)
-      if (c.req.path === '/api/v1/openai/audio/transcriptions') {
-        return next()
-      }
-      return bodyLimit({ maxSize: 1024 * 1024 })(c, next)
-    })
+    .use('*', bodyLimit({ maxSize: 1024 * 1024 }))
     .onError((err, c) => {
       if (err instanceof ApiError) {
         logger.withError(err).warn('API error occurred')

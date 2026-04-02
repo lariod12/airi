@@ -27,14 +27,15 @@ export function createAdminRoutes(
     .get('/config', async (c) => {
       const keys = [
         'FLUX_PER_REQUEST',
-        'FLUX_PER_REQUEST_TTS',
-        'FLUX_PER_REQUEST_ASR',
         'INITIAL_USER_FLUX',
         'FLUX_PACKAGES',
         'FLUX_PER_1K_TOKENS',
+        'FLUX_PER_1K_CHARS_TTS',
+        'MIN_CHARGE_TTS',
         'MAX_CHECKOUT_AMOUNT_CENTS',
         'GATEWAY_BASE_URL',
         'DEFAULT_CHAT_MODEL',
+        'DEFAULT_TTS_MODEL',
         'AUTH_RATE_LIMIT_MAX',
         'AUTH_RATE_LIMIT_WINDOW_SEC',
         'STRIPE_PAYMENT_METHODS',
