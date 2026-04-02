@@ -171,7 +171,7 @@ describe('admin routes', () => {
       })
 
       expect(res.status).toBe(400)
-      const body = await res.json()
+      const body = await res.json() as { error: string }
       expect(body.error).toBe('INVALID_REQUEST')
     })
 
@@ -185,7 +185,7 @@ describe('admin routes', () => {
       })
 
       expect(res.status).toBe(400)
-      const body = await res.json()
+      const body = await res.json() as { error: string }
       expect(body.error).toBe('INVALID_REQUEST')
     })
 
@@ -199,7 +199,7 @@ describe('admin routes', () => {
       })
 
       expect(res.status).toBe(400)
-      const body = await res.json()
+      const body = await res.json() as { error: string }
       expect(body.error).toBe('INVALID_REQUEST')
     })
   })
