@@ -75,8 +75,12 @@ export function createStripeRoutes(
         throw createBadRequestError('Missing trusted request origin', 'INVALID_ORIGIN')
       }
 
+      const paymentMethods = await configKV.getOptional('STRIPE_PAYMENT_METHODS') ?? ['card']
+      const paymentMethodOptions = await configKV.getOptional('STRIPE_PAYMENT_METHOD_OPTIONS') ?? {}
+
       const session = await stripe.checkout.sessions.create({
-        payment_method_types: ['card'],
+        payment_method_types: paymentMethods as Stripe.Checkout.SessionCreateParams.PaymentMethodType[],
+        ...(Object.keys(paymentMethodOptions).length > 0 && { payment_method_options: paymentMethodOptions as Stripe.Checkout.SessionCreateParams.PaymentMethodOptions }),
         line_items: [
           {
             price_data: {

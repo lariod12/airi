@@ -48,6 +48,7 @@ function createMockConfigKV(overrides: Record<string, any> = {}): ConfigKVServic
   const defaults: Record<string, any> = {
     FLUX_PACKAGES: [{ amount: 500, fluxAmount: 5000, label: '5000 Flux', price: '$5' }],
     MAX_CHECKOUT_AMOUNT_CENTS: 1_000_000,
+    STRIPE_PAYMENT_METHODS: ['card'],
     ...overrides,
   }
   return {

@@ -37,6 +37,8 @@ const ConfigEntrySchemas = {
   DEFAULT_CHAT_MODEL: string(),
   AUTH_RATE_LIMIT_MAX: optional(number(), 20),
   AUTH_RATE_LIMIT_WINDOW_SEC: optional(number(), 60),
+  STRIPE_PAYMENT_METHODS: optional(array(string()), ['card']),
+  STRIPE_PAYMENT_METHOD_OPTIONS: optional(object({}), {}),
 } as const
 
 type ConfigDefinitions = {
