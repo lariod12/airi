@@ -350,7 +350,7 @@ describe('v1CompletionsRoutes', () => {
     })
   })
 
-  describe.skip('pOST /api/v1/openai/audio/speech', () => {
+  describe('pOST /api/v1/openai/audio/speech', () => {
     it('should proxy TTS request to upstream', async () => {
       const audioData = new Uint8Array([1, 2, 3, 4])
       globalThis.fetch = vi.fn(async () => new Response(audioData, {
@@ -377,7 +377,7 @@ describe('v1CompletionsRoutes', () => {
     })
   })
 
-  describe.skip('pOST /api/v1/openai/audio/transcriptions', () => {
+  describe('pOST /api/v1/openai/audio/transcriptions', () => {
     it('should proxy transcription request to upstream', async () => {
       globalThis.fetch = vi.fn(async () => new Response('{"text":"hello"}', {
         status: 200,
