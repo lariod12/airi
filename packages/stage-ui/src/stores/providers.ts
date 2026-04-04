@@ -1772,7 +1772,7 @@ export const useProvidersStore = defineStore('providers', () => {
   // const validatedCredentials = ref<Record<string, string>>({})
   const providerRuntimeState = ref<Record<string, ProviderRuntimeState>>({})
   const providerValidationInFlight = new Map<string, Promise<boolean>>()
-  const providerRevalidationLoops = new Map<string, { resume: () => void }>()
+  const providerRevalidationLoops = new Map<string, { resume: () => void, pause: () => void }>()
 
   const configuredProviders = computed(() => {
     const result: Record<string, boolean> = {}
@@ -1892,6 +1892,10 @@ export const useProvidersStore = defineStore('providers', () => {
         continue
       }
 
+      // Only auto-validate providers the user has explicitly added or configured
+      if (!shouldListProvider(providerId))
+        continue
+
       const loop = useIntervalFn(() => {
         void validateProvider(providerId, { force: true })
       }, intervalMs, { immediate: false, immediateCallback: false })
@@ -1900,11 +1904,10 @@ export const useProvidersStore = defineStore('providers', () => {
     }
   }
 
-  // Update configuration status for all configured providers
+  // Update configuration status for providers the user has added or configured
   async function updateConfigurationStatus() {
     await Promise.all(Object.entries(providerMetadata)
-      // TODO: ignore un-configured provider
-      // .filter(([_, provider]) => provider.configured)
+      .filter(([providerId]) => shouldListProvider(providerId))
       .map(async ([providerId]) => {
         try {
           if (providerRuntimeState.value[providerId]) {
@@ -1923,6 +1926,11 @@ export const useProvidersStore = defineStore('providers', () => {
   // Call initially and watch for changes
   watch(providerCredentials, updateConfigurationStatus, { deep: true, immediate: true })
   startPeriodicRuntimeValidation()
+
+  // When providers are added/removed, (re)start periodic validation for newly added ones
+  watch(addedProviders, () => {
+    startPeriodicRuntimeValidation()
+  }, { deep: true })
 
   watch(() => authState.isAuthenticated, updateConfigurationStatus)
 
@@ -1954,7 +1962,16 @@ export const useProvidersStore = defineStore('providers', () => {
     return result
   })
 
+  function stopPeriodicValidationFor(providerId: string) {
+    const loop = providerRevalidationLoops.get(providerId)
+    if (loop) {
+      loop.pause()
+      providerRevalidationLoops.delete(providerId)
+    }
+  }
+
   function deleteProvider(providerId: string) {
+    stopPeriodicValidationFor(providerId)
     delete providerCredentials.value[providerId]
     delete providerRuntimeState.value[providerId]
     unmarkProviderAdded(providerId)
@@ -1973,6 +1990,7 @@ export const useProvidersStore = defineStore('providers', () => {
   }
 
   function setProviderUnconfigured(providerId: string) {
+    stopPeriodicValidationFor(providerId)
     if (providerRuntimeState.value[providerId]) {
       providerRuntimeState.value[providerId].isConfigured = false
       providerRuntimeState.value[providerId].validatedCredentialHash = undefined
